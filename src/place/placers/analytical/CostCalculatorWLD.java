@@ -2,8 +2,8 @@ package place.placers.analytical;
 
 import java.util.List;
 
-import place.placers.analytical.AnalyticalAndGradientPlacer.Net;
-import place.placers.analytical.AnalyticalAndGradientPlacer.NetBlock;
+import place.placers.analytical.LiquidPlacer.Net;
+import place.placers.analytical.LiquidPlacer.NetBlock;
 
 class CostCalculatorWLD extends CostCalculator {
 
@@ -47,7 +47,7 @@ class CostCalculatorWLD extends CostCalculator {
                 }
             }
 
-            cost += ((maxX - minX + 1) + (maxY - minY + 1)) * AnalyticalAndGradientPlacer.getWeight(numNetBlocks);
+            cost += ((maxX - minX + 1) + (maxY - minY + 1)) * LiquidPlacer.getWeight(numNetBlocks);
         }
 
         return cost / 100;

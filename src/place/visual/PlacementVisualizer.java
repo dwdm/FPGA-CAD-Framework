@@ -3,7 +3,7 @@ package place.visual;
 import place.circuit.Circuit;
 import place.circuit.block.GlobalBlock;
 import place.interfaces.Logger;
-import place.placers.analytical.AnalyticalAndGradientPlacer.NetBlock;
+import place.placers.analytical.LiquidPlacer.NetBlock;
 
 import java.awt.BorderLayout;
 import java.awt.Container;

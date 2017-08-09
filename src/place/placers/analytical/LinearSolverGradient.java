@@ -29,20 +29,14 @@ class LinearSolverGradient {
         this.solverY = new DimensionSolverGradient(coordinatesY, maxConnectionLength, fixed, beta1, beta2, eps);
     }
 
-    public void initializeIteration(double pseudoWeight, double learningRate) {
-        this.solverX.initializeIteration(pseudoWeight, learningRate);
-        this.solverY.initializeIteration(pseudoWeight, learningRate);
-    }
-
-
-    void addPseudoConnections(int[] legalX, int[] legalY) {
-        this.solverX.setLegal(legalX);
-        this.solverY.setLegal(legalY);
+    public void initializeIteration(double learningRate) {
+        this.solverX.initializeIteration(learningRate);
+        this.solverY.initializeIteration(learningRate);
     }
 
     void processNet(int netStart, int netEnd) {
         int numNetBlocks = netEnd - netStart;
-        double weight = AnalyticalAndGradientPlacer.getWeight(numNetBlocks);
+        double weight = LiquidPlacer.getWeight(numNetBlocks);
 
         // Nets with 2 blocks are common and can be processed very quick
         if(numNetBlocks == 2) {

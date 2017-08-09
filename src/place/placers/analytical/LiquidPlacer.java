@@ -26,7 +26,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
-public abstract class AnalyticalAndGradientPlacer extends Placer {
+public abstract class LiquidPlacer extends Placer {
 
     protected List<BlockType> blockTypes;
     protected List<Integer> blockTypeIndexStarts;
@@ -34,8 +34,7 @@ public abstract class AnalyticalAndGradientPlacer extends Placer {
 
     protected int numIOBlocks, numMovableBlocks;
 
-    protected double[] linearX, linearY;
-    protected int[] legalX, legalY;
+    protected double[] coorX, coorY;
     protected int[] heights;
 
     private double criticalityLearningRate;
@@ -70,7 +69,7 @@ public abstract class AnalyticalAndGradientPlacer extends Placer {
         T_LEGALIZE = "legalize";
 
 
-    public AnalyticalAndGradientPlacer(Circuit circuit, Options options, Random random, Logger logger, PlacementVisualizer visualizer) {
+    public LiquidPlacer(Circuit circuit, Options options, Random random, Logger logger, PlacementVisualizer visualizer) {
         super(circuit, options, random, logger, visualizer);
 
         this.criticalityLearningRate = options.getDouble(O_CRIT_LEARNING_RATE);
@@ -79,11 +78,14 @@ public abstract class AnalyticalAndGradientPlacer extends Placer {
     protected abstract boolean isTimingDriven();
 
     protected abstract void initializeIteration(int iteration);
-    protected abstract void solveLinear(int iteration);
-    protected abstract void solveLegal();
-    protected abstract void solveLinear(BlockType category, int iteration);
-    protected abstract void solveLegal(BlockType category);
-    protected abstract void updateLegalIfNeeded();
+
+    protected abstract void optimizeHardblock(BlockType type);
+    protected abstract void legalizeHardblock(BlockType type);
+
+    protected abstract void optimizeLAB();
+    protected abstract void spreadLAB();
+    protected abstract void legalizeLAB();
+
     protected abstract boolean stopCondition(int iteration);
     protected abstract int numIterations();
 
@@ -121,10 +123,8 @@ public abstract class AnalyticalAndGradientPlacer extends Placer {
         this.legalCost = -1.0;
 
         // Add all global blocks, in the order of 'blockTypes'
-        this.linearX = new double[numBlocks];
-        this.linearY = new double[numBlocks];
-        this.legalX = new int[numBlocks];
-        this.legalY = new int[numBlocks];
+        this.coorX = new double[numBlocks];
+        this.coorY = new double[numBlocks];
         this.hasNets = new boolean[numBlocks];
 
         this.heights = new int[numBlocks];
@@ -152,10 +152,8 @@ public abstract class AnalyticalAndGradientPlacer extends Placer {
                     // the position of the macro is rounded down
                     float offset = (1 - height) / 2f;
 
-                    this.linearX[blockCounter] = column;
-                    this.linearY[blockCounter] = row - offset;
-                    this.legalX[blockCounter] = column;
-                    this.legalY[blockCounter] = row + (int) Math.floor(-offset);
+                    this.coorX[blockCounter] = column;
+                    this.coorY[blockCounter] = row - offset;
                     this.heights[blockCounter] = height;
 
                     this.netBlocks.put(block, new NetBlock(blockCounter, offset, blockType));
@@ -238,20 +236,16 @@ public abstract class AnalyticalAndGradientPlacer extends Placer {
         this.solveSeparate = new boolean[numIterations];
         double nextFunctionValue = 0;
 
-        double priority = 0.75, fequency = 0.3, min = 5;
+        double priority = 0.75, fequency = 0.3;
 
         StringBuilder recalculationsString = new StringBuilder();
         for(int i = 0; i < numIterations; i++) {
             double functionValue = Math.pow((1. * i) / numIterations, 1. / priority);
             if(functionValue >= nextFunctionValue) {
                 nextFunctionValue += 1.0 / (fequency * numIterations);
-                if(i > min){
-                	this.solveSeparate[i] = true;
-                	recalculationsString.append("|");
-                }else{
-                	this.solveSeparate[i] = false;
-                	recalculationsString.append(".");
-                }
+
+                this.solveSeparate[i] = true;
+                recalculationsString.append("|");
             } else {
             	this.solveSeparate[i] = false;
                 recalculationsString.append(".");
@@ -321,137 +315,124 @@ public abstract class AnalyticalAndGradientPlacer extends Placer {
         }
     }
 
-
+    protected abstract void calculateTimingCost();
+    
     @Override
     protected void doPlacement() {
 
         int iteration = 0;
         boolean isLastIteration = false;
-
+       
         while(!isLastIteration) {
             double timerBegin = System.nanoTime();
 
             this.initializeIteration(iteration);
 
-            if(this.solveSeparate[iteration]){
-            	for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.CLB)){
-                    this.solveLinear(blockType, iteration);
-                	this.solveLegal(blockType);
-                }
-                for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.HARDBLOCK)){
-                    this.solveLinear(blockType, iteration);
-                	this.solveLegal(blockType);
-                }
-                for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
-                    this.solveLinear(blockType, iteration);
-                	this.solveLegal(blockType);
-                }
-            }else{
-            	this.solveLinear(iteration);
-            	this.solveLegal();
+        	this.optimizeLAB();
+        	this.addPlacement(iteration);
+        	
+        	this.spreadLAB();
+        	this.addPlacement(iteration);
+
+            for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.HARDBLOCK)){
+                this.optimizeHardblock(blockType);
+                this.legalizeHardblock(blockType);
             }
+            for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
+                this.optimizeHardblock(blockType);
+                this.legalizeHardblock(blockType);
+            }
+            this.addPlacement(iteration);
+            
+            this.calculateTimingCost();
 
-            this.updateLegalIfNeeded();
-
-            this.addLinearPlacement(iteration);
-            this.addLegalPlacement(iteration);
 
             isLastIteration = this.stopCondition(iteration);
 
             double timerEnd = System.nanoTime();
             double time = (timerEnd - timerBegin) * 1e-9;
 
-            this.printStatistics(iteration, time, this.overlap());
+            this.printStatistics(iteration, time, 0);
+            //TODO //this.printStatistics(iteration, time, this.overlap());
 
             iteration++;
         }
+        
+        this.legalizeLAB();
 
         this.logger.println();
 
         //Only update circuit if the final solution is legal
-        if(this.overlap() == 0){
-        	this.startTimer(T_UPDATE_CIRCUIT);
-        	try {
-        		this.updateCircuit();
-        	} catch(PlacementException error) {
-        		this.logger.raise(error);
-        	}
-        	this.stopTimer(T_UPDATE_CIRCUIT);
-        }
+    	this.startTimer(T_UPDATE_CIRCUIT);
+    	try {
+    		this.updateCircuit();
+    	} catch(PlacementException error) {
+    		this.logger.raise(error);
+    	}
+    	this.stopTimer(T_UPDATE_CIRCUIT);
     }
-    private void addLinearPlacement(int iteration){
+    private void addPlacement(int iteration){
         this.visualizer.addPlacement(
                 String.format("iteration %d: linear", iteration),
-                this.netBlocks, this.linearX, this.linearY,
+                this.netBlocks, this.coorX, this.coorY,
                 this.linearCost);
-    }
-    private void addLegalPlacement(int iteration){
-        this.visualizer.addPlacement(
-                String.format("iteration %d: legal", iteration),
-                this.netBlocks, this.legalX, this.legalY,
-                this.legalCost);
-    }
-
-    protected void updateLegal(int[] newLegalX, int[] newLegalY) {
-        System.arraycopy(newLegalX, 0, this.legalX, 0, this.legalX.length);
-        System.arraycopy(newLegalY, 0, this.legalY, 0, this.legalY.length);
     }
 
     //Overlap
-    private int overlap(){
-    	int gridWidth = this.circuit.getWidth() + 2;
-    	int gridHeight = this.circuit.getHeight() + 2;
-
-    	boolean[][] legalMap = new boolean[gridWidth][gridHeight];
-    	for(int x = 0; x < gridWidth; x++){
-    		legalMap[x][0] = false;
-    		legalMap[x][gridHeight - 1] = false;
-    	}
-    	for(int y = 0; y < gridHeight; y++){
-    		legalMap[0][y] = false;
-    		legalMap[gridWidth - 1][y] = false;
-    	}
-
-    	int overlap = 0;
-
-    	// Skip i = 0: these are IO blocks
-        for(int i = 1; i < this.blockTypes.size(); i++) {
-            BlockType blockType = this.blockTypes.get(i);
-
-        	for(int x = 1; x < gridWidth- 1; x++){
-        		for(int y = 1; y < gridHeight - 1; y++){
-        			if(this.circuit.getColumnType(x).equals(blockType)){
-        				legalMap[x][y] = true;
-        			}else{
-        				legalMap[x][y] = false;
-        			}
-        		}
-        	}
-
-            int blocksStart = this.blockTypeIndexStarts.get(i);
-            int blocksEnd = this.blockTypeIndexStarts.get(i + 1);
-
-            if(blocksEnd > blocksStart) {
-            	for(int blockIndex = blocksStart; blockIndex < blocksEnd; blockIndex++){
-            		int x = this.legalX[blockIndex];
-                	int y = this.legalY[blockIndex];
-
-                	int height = this.heights[blockIndex];
-
-                	for(int offset = (1-height) / 2; offset <= height / 2; offset++){
-                		for(int h = 0; h < blockType.getHeight(); h++){
-                    		if(legalMap[x][y + offset + h] == true){
-                    			legalMap[x][y + offset + h] = false;
-                    		}else{
-                    			overlap++;
-                    		}
-                		}
-                	}
-            	}
-            }
-        }
-    	return overlap;
-    }
+//    private int overlap(){
+//    	int gridWidth = this.circuit.getWidth() + 2;
+//    	int gridHeight = this.circuit.getHeight() + 2;
+//
+//    	boolean[][] legalMap = new boolean[gridWidth][gridHeight];
+//    	for(int x = 0; x < gridWidth; x++){
+//    		legalMap[x][0] = false;
+//    		legalMap[x][gridHeight - 1] = false;
+//    	}
+//    	for(int y = 0; y < gridHeight; y++){
+//    		legalMap[0][y] = false;
+//    		legalMap[gridWidth - 1][y] = false;
+//    	}
+//
+//    	int overlap = 0;
+//
+//    	// Skip i = 0: these are IO blocks
+//        for(int i = 1; i < this.blockTypes.size(); i++) {
+//            BlockType blockType = this.blockTypes.get(i);
+//
+//        	for(int x = 1; x < gridWidth- 1; x++){
+//        		for(int y = 1; y < gridHeight - 1; y++){
+//        			if(this.circuit.getColumnType(x).equals(blockType)){
+//        				legalMap[x][y] = true;
+//        			}else{
+//        				legalMap[x][y] = false;
+//        			}
+//        		}
+//        	}
+//
+//            int blocksStart = this.blockTypeIndexStarts.get(i);
+//            int blocksEnd = this.blockTypeIndexStarts.get(i + 1);
+//
+//            if(blocksEnd > blocksStart) {
+//            	for(int blockIndex = blocksStart; blockIndex < blocksEnd; blockIndex++){
+//            		int x = this.legalX[blockIndex];
+//                	int y = this.legalY[blockIndex];
+//
+//                	int height = this.heights[blockIndex];
+//
+//                	for(int offset = (1-height) / 2; offset <= height / 2; offset++){
+//                		for(int h = 0; h < blockType.getHeight(); h++){
+//                    		if(legalMap[x][y + offset + h] == true){
+//                    			legalMap[x][y + offset + h] = false;
+//                    		}else{
+//                    			overlap++;
+//                    		}
+//                		}
+//                	}
+//            	}
+//            }
+//        }
+//    	return overlap;
+//    }
 
     protected void updateCircuit() throws PlacementException {
         // Clear all previous locations
@@ -467,8 +448,8 @@ public abstract class AnalyticalAndGradientPlacer extends Placer {
             int index = netBlock.blockIndex;
             int offset = (int) Math.ceil(netBlock.offset);
 
-            int column = this.legalX[index];
-            int row = this.legalY[index] + offset * block.getType().getHeight();
+            int column = (int) Math.round(this.coorX[index]);
+            int row = (int) Math.round(this.coorY[index] + offset * block.getType().getHeight());
 
             if(block.getCategory() != BlockCategory.IO) {
                 Site site = (Site) this.circuit.getSite(column, row, true);

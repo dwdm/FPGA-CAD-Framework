@@ -6,7 +6,7 @@ import java.util.Set;
 
 import place.circuit.Circuit;
 import place.circuit.block.GlobalBlock;
-import place.placers.analytical.AnalyticalAndGradientPlacer.NetBlock;
+import place.placers.analytical.LiquidPlacer.NetBlock;
 
 class Placement {
 

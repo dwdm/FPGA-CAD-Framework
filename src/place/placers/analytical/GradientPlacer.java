@@ -15,12 +15,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
+public abstract class GradientPlacer extends LiquidPlacer {
 
     private static final String
-        O_ANCHOR_WEIGHT_EXPONENT = "anchor weight exponent",
-        O_ANCHOR_WEIGHT_STOP = "anchor weight stop",
-
         O_LEARNING_RATE_START = "learning rate start",
         O_LEARNING_RATE_STOP = "learning rate stop",
 
@@ -35,17 +32,7 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
         O_INNER_EFFORT_LEVEL = "inner effort level";
 
     public static void initOptions(Options options) {
-        AnalyticalAndGradientPlacer.initOptions(options);
-
-        options.add(
-                O_ANCHOR_WEIGHT_EXPONENT,
-                "anchor weight exponent",
-                new Double(2));
-
-        options.add(
-                O_ANCHOR_WEIGHT_STOP,
-                "anchor weight at which the placement is finished (max: 1)",
-                new Double(0.85));
+        LiquidPlacer.initOptions(options);
 
         options.add(
                 O_LEARNING_RATE_START,
@@ -93,9 +80,6 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
                 new Integer(40));
     }
 
-    protected double anchorWeight;
-    protected final double anchorWeightStop, anchorWeightExponent;
-
     private final double maxConnectionLength;
     protected double learningRate, learningRateMultiplier;
     private final double beta1, beta2, eps;
@@ -108,9 +92,10 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
     protected double tradeOff; 
     protected List<CritConn> criticalConnections;
 
-    private CostCalculator costCalculator;
+    protected Legalizer hardblockLegalizer;
+    protected Legalizer labSpreader;
+    protected Legalizer labLegalizer;
 
-    protected Legalizer legalizer;
     protected LinearSolverGradient solver;
 
     private Map<BlockType, boolean[]> netMap;
@@ -120,8 +105,6 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
     private float[] netBlockOffsets;
 
     protected boolean[] fixed;
-    private double[] coordinatesX;
-    private double[] coordinatesY;
 
     public GradientPlacer(
             Circuit circuit,
@@ -131,10 +114,6 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
             PlacementVisualizer visualizer){
 
         super(circuit, options, random, logger, visualizer);
-
-        this.anchorWeight = 0.0;
-        this.anchorWeightExponent = this.options.getDouble(O_ANCHOR_WEIGHT_EXPONENT);
-        this.anchorWeightStop = this.options.getDouble(O_ANCHOR_WEIGHT_STOP);
 
     	this.effortLevel = this.options.getInteger(O_INNER_EFFORT_LEVEL);
     	this.numIterations = this.options.getInteger(O_OUTER_EFFORT_LEVEL) + 1;
@@ -159,7 +138,6 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
     }
 
     protected abstract void initializeIteration(int iteration);
-    protected abstract void calculateTimingCost();
 
     @Override
     public void initializeData() {
@@ -167,19 +145,39 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
 
         this.startTimer(T_INITIALIZE_DATA);
 
-        this.legalizer = new HeapLegalizer(
+        this.hardblockLegalizer = new HardblockConnectionLegalizer(
                 this.circuit,
                 this.blockTypes,
                 this.blockTypeIndexStarts,
-                this.linearX,
-                this.linearY,
-                this.legalX,
-                this.legalY,
+                this.coorX,
+                this.coorY,
                 this.heights,
                 this.visualizer,
                 this.nets,
                 this.netBlocks);
-        this.legalizer.setQuality(0.1,  0.9);
+        this.hardblockLegalizer.setQuality(0.1,  0.9);
+        
+        this.labSpreader = new GradientLegalizer(
+                this.circuit,
+                this.blockTypes,
+                this.blockTypeIndexStarts,
+                this.coorX,
+                this.coorY,
+                this.heights,
+                this.visualizer,
+                this.nets,
+                this.netBlocks);
+        
+        this.labLegalizer = new DetailedLegalizer(
+                this.circuit,
+                this.blockTypes,
+                this.blockTypeIndexStarts,
+                this.coorX,
+                this.coorY,
+                this.heights,
+                this.visualizer,
+                this.nets,
+                this.netBlocks);
 
         // Juggling with objects is too slow (I profiled this,
         // the speedup is around 40%)
@@ -226,14 +224,11 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
             this.netEnds[netCounter] = netBlockCounter;
         }
 
-        this.fixed = new boolean[this.legalX.length];
-
-    	this.coordinatesX = new double[this.legalX.length];
-    	this.coordinatesY = new double[this.legalY.length];
+        this.fixed = new boolean[this.coorX.length];
 
         this.solver = new LinearSolverGradient(
-                this.coordinatesX,
-                this.coordinatesY,
+                this.coorX,
+                this.coorY,
                 this.netBlockIndexes,
                 this.netBlockOffsets,
                 this.maxConnectionLength,
@@ -242,40 +237,62 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
                 this.beta2, 
                 this.eps);
 
-        this.costCalculator = new CostCalculatorWLD(this.nets);
-
         this.stopTimer(T_INITIALIZE_DATA);
     }
 
     @Override
-    protected void solveLinear(int iteration) {
-    	Arrays.fill(this.fixed, false);
-		for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
-			this.fixBlockType(blockType);
-		}
-
-		this.doSolveLinear(this.allTrue);
-    }
-
-    @Override
-    protected void solveLinear(BlockType solveType, int iteration) {
+    protected void optimizeHardblock(BlockType type){
     	Arrays.fill(this.fixed, false);
 		for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
 			this.fixBlockType(blockType);
 		}
 
     	for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.CLB)){
-    		if(!blockType.equals(solveType)){
-    			this.fixBlockType(blockType);
-    		}
+    		this.fixBlockType(blockType);
     	}
     	for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.HARDBLOCK)){
-    		if(!blockType.equals(solveType)){
+    		if(!blockType.equals(type)){
     			this.fixBlockType(blockType);
     		}
     	}
 
-		this.doSolveLinear(this.netMap.get(solveType));
+		this.doSolveLinear(this.netMap.get(type));
+    }
+    @Override
+    protected void legalizeHardblock(BlockType type){
+        this.startTimer(T_LEGALIZE);
+        this.hardblockLegalizer.legalize(type);
+        this.stopTimer(T_LEGALIZE);
+    }
+    @Override
+    protected void optimizeLAB(){
+    	BlockType lab = BlockType.getBlockTypes(BlockCategory.CLB).get(0);
+    	
+    	Arrays.fill(this.fixed, false);
+		for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
+			this.fixBlockType(blockType);
+		}
+    	for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.HARDBLOCK)){
+    			this.fixBlockType(blockType);
+    	}
+
+		this.doSolveLinear(this.netMap.get(lab));
+    }
+    @Override
+    protected void spreadLAB(){
+    	BlockType lab = BlockType.getBlockTypes(BlockCategory.CLB).get(0);
+    	
+    	this.startTimer(T_LEGALIZE);
+    	this.labSpreader.legalize(lab);
+    	this.stopTimer(T_LEGALIZE);
+    }
+    @Override
+    protected void legalizeLAB(){
+    	BlockType lab = BlockType.getBlockTypes(BlockCategory.CLB).get(0);
+    	
+    	this.startTimer(T_LEGALIZE);
+    	this.labLegalizer.legalize(lab);
+    	this.stopTimer(T_LEGALIZE);
     }
 
     private void fixBlockType(BlockType fixBlockType){
@@ -287,28 +304,11 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
     	}
     }
     private void doSolveLinear(boolean[] processNets){
-		for(int i = 0; i < this.legalX.length; i++){
-			if(this.fixed[i]){
-				this.coordinatesX[i] = this.legalizer.getLegalX(i);
-				this.coordinatesY[i] = this.legalizer.getLegalY(i);
-			}else{
-				this.coordinatesX[i] = this.linearX[i];
-				this.coordinatesY[i] = this.linearY[i];
-			}
-		}
-
         for(int i = 0; i < this.effortLevel; i++) {
             this.solveLinearIteration(processNets);
 
             //this.visualizer.addPlacement(String.format("gradient descent step %d", i), this.netBlocks, this.solver.getCoordinatesX(), this.solver.getCoordinatesY(), -1);
         }
-        
-		for(int i = 0; i < this.legalX.length; i++){
-			if(!this.fixed[i]){
-				this.linearX[i] = this.coordinatesX[i];
-				this.linearY[i] = this.coordinatesY[i];
-			}
-		}
     }
 
     /*
@@ -319,17 +319,17 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
         this.startTimer(T_BUILD_LINEAR);
 
         // Set value of alpha and reset the solver
-        this.solver.initializeIteration(this.anchorWeight, this.learningRate);
+        this.solver.initializeIteration(this.learningRate);
 
         // Process nets
         this.processNets(processNets);
 
         // Add pseudo connections
-        if(this.anchorWeight != 0.0) {
-            // this.legalX and this.legalY store the solution with the lowest cost
-            // For anchors, the last (possibly suboptimal) solution usually works better
-            this.solver.addPseudoConnections(this.legalizer.getLegalX(), this.legalizer.getLegalY());
-        }
+        //if(this.anchorWeight != 0.0) {
+        //    // this.legalX and this.legalY store the solution with the lowest cost
+        //    // For anchors, the last (possibly suboptimal) solution usually works better
+        //    this.solver.addPseudoConnections(this.legalizer.getLegalX(), this.legalizer.getLegalY());
+        //}
 
         this.stopTimer(T_BUILD_LINEAR);
 
@@ -354,53 +354,9 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
     }
 
     @Override
-    protected void solveLegal() {
-        this.startTimer(T_LEGALIZE);
-        for(BlockType legalizeType:BlockType.getBlockTypes(BlockCategory.CLB)){
-        	this.legalizer.legalize(legalizeType);
-        }
-        for(BlockType legalizeType:BlockType.getBlockTypes(BlockCategory.HARDBLOCK)){
-        	this.legalizer.legalize(legalizeType);
-        }
-        for(BlockType legalizeType:BlockType.getBlockTypes(BlockCategory.IO)){
-        	this.legalizer.legalize(legalizeType);
-        }
-        this.stopTimer(T_LEGALIZE);
-    }
-
-    @Override
-    protected void solveLegal(BlockType legalizeType) {
-        this.startTimer(T_LEGALIZE);
-        this.legalizer.legalize(legalizeType);
-        this.stopTimer(T_LEGALIZE);
-    }
-
-    @Override
-    protected void updateLegalIfNeeded(){
-    	this.startTimer(T_UPDATE_CIRCUIT);
-
-    	this.linearCost = this.costCalculator.calculate(this.linearX, this.linearY);
-    	this.legalCost = this.costCalculator.calculate(this.legalizer.getLegalX(), this.legalizer.getLegalY());
-
-    	if(this.isTimingDriven()){
-    		this.calculateTimingCost();
-    		this.latestCost = Math.pow(this.legalCost, 1) * Math.pow(this.timingCost, 1);
-    	}else{
-    		this.latestCost = this.legalCost;
-    	}
-
-    	if(this.latestCost < this.minCost){
-    		this.minCost = this.latestCost;
-    		this.updateLegal(this.legalizer.getLegalX(), this.legalizer.getLegalY());
-    	}
-    	this.stopTimer(T_UPDATE_CIRCUIT);
-    }
-
-    @Override
     protected void addStatTitles(List<String> titles) {
         titles.add("it");
         titles.add("stepsize");
-        titles.add("anchor");
         titles.add("anneal Q");
         titles.add("max conn length");
 
@@ -425,8 +381,7 @@ public abstract class GradientPlacer extends AnalyticalAndGradientPlacer {
 
         stats.add(Integer.toString(iteration));
         stats.add(String.format("%.3f", this.learningRate));
-        stats.add(String.format("%.3f", this.anchorWeight));
-        stats.add(String.format("%.5f", this.legalizer.getQuality()));
+        stats.add(String.format("%.5f", this.hardblockLegalizer.getQuality()));
         stats.add(String.format("%.1f", this.maxConnectionLength));
 
         //Wirelength cost

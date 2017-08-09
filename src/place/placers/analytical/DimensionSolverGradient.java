@@ -17,10 +17,6 @@ class DimensionSolverGradient {
     private final double beta1;
     private final double beta2;
     private final double eps;
-
-    private double pseudoWeight = 0;
-    private boolean legalIsSet = false;
-    private int[] legalCoordinates;
     
     private boolean[] fixed;
 
@@ -46,8 +42,7 @@ class DimensionSolverGradient {
         this.fixed = fixed;
     }
 
-    void initializeIteration(double pseudoWeight, double learningRate) {
-        this.pseudoWeight = pseudoWeight;
+    void initializeIteration(double learningRate) {
         this.stepSize = learningRate;
 
         Arrays.fill(this.directions, 0.0);
@@ -58,12 +53,6 @@ class DimensionSolverGradient {
         Arrays.fill(this.totalPositiveNetSize, 0.0);
         Arrays.fill(this.totalNegativeNetSize, 0.0);
     }
-
-    void setLegal(int[] legal) {
-        this.legalCoordinates = legal;
-        this.legalIsSet = true;
-    }
-
 
     void processConnection(int firstIndex, int secondIndex, double coorDifference, double weight, boolean critical) {
     	if(coorDifference > 0.0){
@@ -100,7 +89,6 @@ class DimensionSolverGradient {
     }
     void doSolve(int i){
     	double direction = this.directions[i];
-    	double currentCoordinate = this.coordinates[i];
 
     	double gradient;
     	if(direction > 0) {
@@ -110,10 +98,6 @@ class DimensionSolverGradient {
     	} else {
     		return;
     	}
-
-    	if(this.legalIsSet){
-        	gradient = (1 - this.pseudoWeight) * gradient + this.pseudoWeight * (this.legalCoordinates[i] - currentCoordinate);
-        }
 
         this.momentum[i] = this.beta1 * this.momentum[i] + (1 - this.beta1) * gradient;
         this.speeds[i] = this.beta2 * this.speeds[i] + (1 - this.beta2) * gradient * gradient;

@@ -91,9 +91,8 @@ public class GradientPlacerTD extends GradientPlacer {
     	this.stopTimer(T_UPDATE_CRIT_CON);
 
         if(iteration > 0) {
-            this.anchorWeight = Math.pow((double)iteration / (this.numIterations - 1.0), this.anchorWeightExponent) * this.anchorWeightStop;
             this.learningRate *= this.learningRateMultiplier;
-            this.legalizer.increaseQuality();
+            this.hardblockLegalizer.increaseQuality();
         }
     }
 
@@ -136,7 +135,7 @@ public class GradientPlacerTD extends GradientPlacer {
             }
         }
 
-        this.legalizer.updateCriticalConnections(this.criticalConnections);
+        this.hardblockLegalizer.updateCriticalConnections(this.criticalConnections);
     }
 
     @Override
@@ -152,7 +151,7 @@ public class GradientPlacerTD extends GradientPlacer {
 
     @Override
     protected void calculateTimingCost() {
-        this.timingCost = this.criticalityCalculator.calculate(this.legalizer.getLegalX(), this.legalizer.getLegalY());
+        this.timingCost = this.criticalityCalculator.calculate(this.coorX, this.coorY);
     }
 
     @Override

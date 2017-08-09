@@ -8,9 +8,9 @@ import place.circuit.architecture.BlockCategory;
 import place.circuit.architecture.DelayTables;
 import place.circuit.block.GlobalBlock;
 import place.circuit.timing.TimingGraph;
-import place.placers.analytical.AnalyticalAndGradientPlacer.NetBlock;
-import place.placers.analytical.AnalyticalAndGradientPlacer.TimingNet;
-import place.placers.analytical.AnalyticalAndGradientPlacer.TimingNetBlock;
+import place.placers.analytical.LiquidPlacer.NetBlock;
+import place.placers.analytical.LiquidPlacer.TimingNet;
+import place.placers.analytical.LiquidPlacer.TimingNetBlock;
 
 class CostCalculatorTD extends CostCalculator {
 
