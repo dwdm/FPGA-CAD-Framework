@@ -79,34 +79,35 @@ class PushingSpreader {
     //PUSHING GRAVITY FORCES
     private void applyPushingForces(){
     	for(LegalizerBlock block:this.blocks){
+
     		float sw = 0;
         	float se = 0;
         	float nw = 0;
         	float ne = 0;
 
-    		for(int h = 0; h < block.height; h++){
+        	for(int h = 0; h < block.height; h++){
     			
     			int offset = h + h;
 
-        		sw += block.sw * this.massMap[block.ceilxlow][block.ceilylow + offset];
-        		sw += block.nw * this.massMap[block.ceilxlow][block.ceily + offset];
-        		sw += block.se * this.massMap[block.ceilx][block.ceilylow + offset];
+        		sw += block.sw * this.massMap[block.ceilx - 1][block.ceily - 1 + offset];
+        		sw += block.nw * this.massMap[block.ceilx - 1][block.ceily + offset];
+        		sw += block.se * this.massMap[block.ceilx][block.ceily - 1 + offset];
         		sw += block.ne * this.massMap[block.ceilx][block.ceily + offset];
         		
-        		se += block.sw * this.massMap[block.ceilx][block.ceilylow + offset];
+        		se += block.sw * this.massMap[block.ceilx][block.ceily - 1 + offset];
         		se += block.nw * this.massMap[block.ceilx][block.ceily + offset];
-        		se += block.se * this.massMap[block.ceilxhigh][block.ceilylow + offset];
-        		se += block.ne * this.massMap[block.ceilxhigh][block.ceily + offset];
+        		se += block.se * this.massMap[block.ceilx + 1][block.ceily - 1 + offset];
+        		se += block.ne * this.massMap[block.ceilx + 1][block.ceily + offset];
         		
-        		nw += block.sw * this.massMap[block.ceilxlow][block.ceily + offset];
-        		nw += block.nw * this.massMap[block.ceilxlow][block.ceilyhigh + offset];
+        		nw += block.sw * this.massMap[block.ceilx - 1][block.ceily + offset];
+        		nw += block.nw * this.massMap[block.ceilx - 1][block.ceily + 1 + offset];
         		nw += block.se * this.massMap[block.ceilx][block.ceily + offset];
-        		nw += block.ne * this.massMap[block.ceilx][block.ceilyhigh + offset];
+        		nw += block.ne * this.massMap[block.ceilx][block.ceily + 1 + offset];
         		
         		ne += block.sw * this.massMap[block.ceilx][block.ceily + offset];
-        		ne += block.nw * this.massMap[block.ceilx][block.ceilyhigh + offset];
-        		ne += block.se * this.massMap[block.ceilxhigh][block.ceily + offset];
-        		ne += block.ne * this.massMap[block.ceilxhigh][block.ceilyhigh + offset];
+        		ne += block.nw * this.massMap[block.ceilx][block.ceily + 1 + offset];
+        		ne += block.se * this.massMap[block.ceilx + 1][block.ceily + offset];
+        		ne += block.ne * this.massMap[block.ceilx + 1][block.ceily + 1 + offset];
     		}
 
     		float xval = block.horizontal.coordinate - (float)Math.floor(block.horizontal.coordinate);
@@ -130,32 +131,33 @@ class PushingSpreader {
     			yGrid = 1 - yval;
     		}
     		
-    		xGrid *= 0.0075;
-    		yGrid *= 0.0075;
+    		xGrid *= 0.005;
+    		yGrid *= 0.005;
 
     		float mass = sw + nw + se + ne;
-    		
+
     		float horizontalForce = (sw + nw - se - ne + xGrid) / (mass + xGrid);
     		float verticalForce = (sw - nw + se - ne + yGrid) / (mass + yGrid);
 
         	block.horizontal.setForce(horizontalForce);
         	block.vertical.setForce(verticalForce);
 
+        	//Substract block from mass map
         	for(int h = 0; h < block.height; h++){
         		
         		int offset = h + h;
         		
-            	this.massMap[block.ceilxlow][block.ceilylow + offset] -= block.sw;
-            	this.massMap[block.ceilx][block.ceilylow + offset] -= block.se + block.sw;
-            	this.massMap[block.ceilxhigh][block.ceilylow + offset] -= block.se;
+            	this.massMap[block.ceilx - 1][block.ceily - 1 + offset] -= block.sw;
+            	this.massMap[block.ceilx][block.ceily - 1 + offset] -= block.se + block.sw;
+            	this.massMap[block.ceilx + 1][block.ceily - 1 + offset] -= block.se;
             	
-            	this.massMap[block.ceilxlow][block.ceily + offset] -= block.sw + block.nw;
+            	this.massMap[block.ceilx - 1][block.ceily + offset] -= block.sw + block.nw;
             	this.massMap[block.ceilx][block.ceily + offset] -= 0.25;
-            	this.massMap[block.ceilxhigh][block.ceily + offset] -= block.se + block.ne;
+            	this.massMap[block.ceilx + 1][block.ceily + offset] -= block.se + block.ne;
             	
-            	this.massMap[block.ceilxlow][block.ceilyhigh + offset] -= block.nw;
-            	this.massMap[block.ceilx][block.ceilyhigh + offset] -= block.nw + block.ne;
-            	this.massMap[block.ceilxhigh][block.ceilyhigh + offset] -= block.ne;
+            	this.massMap[block.ceilx - 1][block.ceily + 1 + offset] -= block.nw;
+            	this.massMap[block.ceilx][block.ceily + 1 + offset] -= block.nw + block.ne;
+            	this.massMap[block.ceilx + 1][block.ceily + 1 + offset] -= block.ne;
        		}
 
     		//Horizontal
@@ -170,21 +172,22 @@ class PushingSpreader {
 
     		block.update();
 
+    		//Add block to mass map
         	for(int h = 0; h < block.height; h++){
         		
         		int offset = h + h;
         		
-            	this.massMap[block.ceilxlow][block.ceilylow + offset] += block.sw;
-            	this.massMap[block.ceilx][block.ceilylow + offset] += block.se + block.sw;
-            	this.massMap[block.ceilxhigh][block.ceilylow + offset] += block.se;
+            	this.massMap[block.ceilx - 1][block.ceily - 1 + offset] += block.sw;
+            	this.massMap[block.ceilx][block.ceily - 1 + offset] += block.se + block.sw;
+            	this.massMap[block.ceilx + 1][block.ceily - 1 + offset] += block.se;
             	
-            	this.massMap[block.ceilxlow][block.ceily + offset] += block.sw + block.nw;
+            	this.massMap[block.ceilx - 1][block.ceily + offset] += block.sw + block.nw;
             	this.massMap[block.ceilx][block.ceily + offset] += 0.25;
-            	this.massMap[block.ceilxhigh][block.ceily + offset] += block.se + block.ne;
+            	this.massMap[block.ceilx + 1][block.ceily + offset] += block.se + block.ne;
             	
-            	this.massMap[block.ceilxlow][block.ceilyhigh + offset] += block.nw;
-            	this.massMap[block.ceilx][block.ceilyhigh + offset] += block.nw + block.ne;
-            	this.massMap[block.ceilxhigh][block.ceilyhigh + offset] += block.ne;
+            	this.massMap[block.ceilx - 1][block.ceily + 1 + offset] += block.nw;
+            	this.massMap[block.ceilx][block.ceily + 1 + offset] += block.nw + block.ne;
+            	this.massMap[block.ceilx + 1][block.ceily + 1 + offset] += block.ne;
         	}
     	}
     }

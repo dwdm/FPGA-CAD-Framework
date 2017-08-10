@@ -82,6 +82,8 @@ public abstract class LiquidPlacer extends Placer {
     protected abstract void optimizeHardblock(BlockType type);
     protected abstract void legalizeHardblock(BlockType type);
 
+    protected abstract void optimizeAll();
+    
     protected abstract void optimizeLAB();
     protected abstract void spreadLAB();
     protected abstract void legalizeLAB();
@@ -323,26 +325,50 @@ public abstract class LiquidPlacer extends Placer {
         int iteration = 0;
         boolean isLastIteration = false;
        
+        
+        int counter = 0;
+        
         while(!isLastIteration) {
             double timerBegin = System.nanoTime();
 
             this.initializeIteration(iteration);
 
-        	this.optimizeLAB();
-        	this.addPlacement(iteration);
-        	
-        	this.spreadLAB();
-        	this.addPlacement(iteration);
+            if(counter == 3){
+            	counter = 0;
+            	
+            	this.optimizeLAB();
+            	this.addPlacement(iteration);
+            	
+            	this.spreadLAB();
+            	this.addPlacement(iteration);
 
-            for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.HARDBLOCK)){
-                this.optimizeHardblock(blockType);
-                this.legalizeHardblock(blockType);
+                for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.HARDBLOCK)){
+                    this.optimizeHardblock(blockType);
+                    this.legalizeHardblock(blockType);
+                }
+                for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
+                    this.optimizeHardblock(blockType);
+                    this.legalizeHardblock(blockType);
+                }
+                this.addPlacement(iteration);
+            }else{
+            	counter++;
+            	
+            	this.optimizeAll();
+            	this.addPlacement(iteration);
+            	
+            	this.spreadLAB();
+            	this.addPlacement(iteration);
+
+                for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.HARDBLOCK)){
+                    this.legalizeHardblock(blockType);
+                }
+                for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
+                    this.legalizeHardblock(blockType);
+                }
+                this.addPlacement(iteration);
             }
-            for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
-                this.optimizeHardblock(blockType);
-                this.legalizeHardblock(blockType);
-            }
-            this.addPlacement(iteration);
+
             
             this.calculateTimingCost();
 

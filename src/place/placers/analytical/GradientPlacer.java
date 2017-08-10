@@ -42,7 +42,7 @@ public abstract class GradientPlacer extends LiquidPlacer {
         options.add(
                 O_LEARNING_RATE_STOP,
                 "ratio of distance to optimal position that is moved",
-                new Double(0.2));
+                new Double(0.01));
 
         options.add(
                 O_MAX_CONN_LENGTH_RATIO_SPARSE,
@@ -72,12 +72,12 @@ public abstract class GradientPlacer extends LiquidPlacer {
         options.add(
                 O_OUTER_EFFORT_LEVEL,
                 "number of solve-legalize iterations",
-                new Integer(40));
+                new Integer(10));
 
         options.add(
                 O_INNER_EFFORT_LEVEL,
                 "number of gradient steps to take in each outer iteration",
-                new Integer(40));
+                new Integer(100));
     }
 
     private final double maxConnectionLength;
@@ -155,7 +155,7 @@ public abstract class GradientPlacer extends LiquidPlacer {
                 this.visualizer,
                 this.nets,
                 this.netBlocks);
-        this.hardblockLegalizer.setQuality(0.1,  0.9);
+        this.hardblockLegalizer.setQuality(0.001, 0.001, this.numIterations);
         
         this.labSpreader = new GradientLegalizer(
                 this.circuit,
@@ -263,6 +263,14 @@ public abstract class GradientPlacer extends LiquidPlacer {
         this.startTimer(T_LEGALIZE);
         this.hardblockLegalizer.legalize(type);
         this.stopTimer(T_LEGALIZE);
+    }
+    @Override
+    protected void optimizeAll(){
+    	Arrays.fill(this.fixed, false);
+		for(BlockType blockType : BlockType.getBlockTypes(BlockCategory.IO)){
+			this.fixBlockType(blockType);
+		}
+		this.doSolveLinear(this.allTrue);
     }
     @Override
     protected void optimizeLAB(){

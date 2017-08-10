@@ -21,7 +21,6 @@ public class GradientPlacerWLD extends GradientPlacer {
     @Override
     protected void initializeIteration(int iteration) {
         if(iteration > 0) {
-            this.anchorWeight = Math.pow((double)iteration / (this.numIterations - 1.0), this.anchorWeightExponent) * this.anchorWeightStop;
             this.learningRate *= this.learningRateMultiplier;
             this.hardblockLegalizer.increaseQuality();
         }

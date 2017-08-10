@@ -19,9 +19,8 @@ class GradientLegalizer extends Legalizer {
 
 	private LegalizerBlock[] blocks;
 
+	private final PushingSpreader spreader;
 	private final double stepSize, speedAveraging;
-
-    private final PushingSpreader spreader;
 
     private final List<Integer> legalColumns;
     private final List<Integer> illegalColumns;
@@ -39,7 +38,7 @@ class GradientLegalizer extends Legalizer {
             PlacementVisualizer visualizer,
             List<Net> nets,
             Map<GlobalBlock, NetBlock> netBlocks){
-    	
+
         super(circuit, blockTypes, blockTypeIndexStarts, coorX, coorY, heights, nets, visualizer, netBlocks);
 
     	this.legalColumns = new ArrayList<>();
@@ -55,7 +54,7 @@ class GradientLegalizer extends Legalizer {
     			}
     		}
     	}
-    	
+
     	this.columnMap = new HashMap<>();
     	int substract = 0;
     	for(int c = 1; c < circuit.getWidth() + 1; c++){
@@ -67,17 +66,19 @@ class GradientLegalizer extends Legalizer {
 
     	this.stepSize = 0.6;
     	this.speedAveraging = 0.2;
-
-    	this.timer = new TimingTree(false);
-
     	this.spreader = new PushingSpreader(
     			this.legalColumns.size(),	//width
     			this.height,				//height
     			this.timer);
+
+    	this.timer = new TimingTree(true);
     }
 
     protected void legalizeBlockType(int blocksStart, int blocksEnd) {
-    	//TODO THIS CAN BE DONE MUCH FASTER WITHOUT THE LEGALIZER BLOCK CLASS
+    	if(!this.blockType.getCategory().equals(BlockCategory.CLB)){
+    		System.out.println("The GradientLegalizer can only be used for CLBs!");
+    	}
+
         this.timer.start("Legalize BlockType");
 
         this.initializeData(blocksStart, blocksEnd);
@@ -86,13 +87,13 @@ class GradientLegalizer extends Legalizer {
         for(LegalizerBlock block:this.blocks){
         	block.horizontal.coordinate = block.horizontal.coordinate * scalingFactor;
         }
-        
+
         //Pushing spreader
         this.timer.start("Spreading");
-        this.spreader.doSpreading(this.blocks, 1000);
+        this.spreader.doSpreading(this.blocks, this.blocks.length);
         this.timer.time("Spreading");
-       
-        //TODO ER KLOPT HIER IETS NIET?
+
+        ////TODO ER KLOPT HIER IETS NIET?
         for(LegalizerBlock block:this.blocks){
         	int column = (int)Math.floor(block.horizontal.coordinate - 0.25);
         	
@@ -108,22 +109,19 @@ class GradientLegalizer extends Legalizer {
     private void initializeData(int blocksStart, int blocksEnd){
     	this.timer.start("Initialize Data");
 
-    	double x, y;
-
     	//Initialize all blocks
     	this.blocks = new LegalizerBlock[blocksEnd - blocksStart];
     	for(int b = blocksStart; b < blocksEnd; b++){
 
-
-    		x = this.coorX[b];
-    		y = this.coorY[b];
+    		double x = this.coorX[b];
+    		double y = this.coorY[b];
 
     		int height = this.heights[b];
 
     		int offset = (1- height) / 2;
     		this.blocks[b - blocksStart] = new LegalizerBlock(b, x, y, offset, height * this.blockType.getHeight(), this.stepSize, this.speedAveraging);
     	}
-
+    	
     	this.timer.time("Initialize Data");
     }
 
@@ -133,7 +131,7 @@ class GradientLegalizer extends Legalizer {
 
     	for(LegalizerBlock block:this.blocks){
     		this.coorX[block.index] = block.horizontal.coordinate;
-    		this.coorY[block.index] = block.vertical.coordinate  - block.offset;
+    		this.coorY[block.index] = block.vertical.coordinate - block.offset;
     	}
 
     	this.timer.time("Update Legal");
@@ -141,15 +139,14 @@ class GradientLegalizer extends Legalizer {
 
     class LegalizerBlock {
     	final int index;
+    	final int offset;
+    	final int height;
 
     	final Dimension horizontal;
     	final Dimension vertical;
 
-    	final int offset;
-    	final int height;
-
-    	int ceilx, ceilxlow, ceilxhigh;
-    	int ceily, ceilylow, ceilyhigh;
+    	int ceilx;
+    	int ceily;
     	float sw, nw, se, ne;
 
     	boolean processed;
@@ -166,12 +163,6 @@ class GradientLegalizer extends Legalizer {
     	void update(){
         	this.ceilx = (int)Math.ceil(this.horizontal.coordinate + this.horizontal.coordinate);
         	this.ceily = (int)Math.ceil(this.vertical.coordinate + this.vertical.coordinate);
-
-        	this.ceilxlow = this.ceilx - 1;
-        	this.ceilxhigh = this.ceilx + 1;
-
-        	this.ceilylow = this.ceily - 1;
-        	this.ceilyhigh = this.ceily + 1;
 
     		float xLeft = (this.ceilx * 0.5f) - this.horizontal.coordinate;
     		float xRight = 0.5f - xLeft;
@@ -201,6 +192,7 @@ class GradientLegalizer extends Legalizer {
     		this.stepSize = (float) stepSize;
     		this.speedAveraging = (float) speedAveraging;
     	}
+
     	void setForce(float force){
     		this.force = force;
     	}
@@ -215,7 +207,7 @@ class GradientLegalizer extends Legalizer {
     		}
     	}
     }
-    
+
 	@Override
 	protected void updateCriticalConnections(List<CritConn> criticalConnections) {
 		//This legalization method makes no use of critical connections

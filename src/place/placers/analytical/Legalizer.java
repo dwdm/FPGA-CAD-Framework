@@ -105,9 +105,9 @@ abstract class Legalizer {
         this.hasQuality = legalizer.hasQuality;
     }
     
-    void setQuality(double initialQuality, double qualityMultiplier){
+    void setQuality(double initialQuality, double finalQuality, int numIterations){
     	this.quality = initialQuality;
-    	this.qualityMultiplier = qualityMultiplier;
+    	this.qualityMultiplier = Math.pow(finalQuality / initialQuality, 1.0 / (numIterations - 1));
     	this.hasQuality = true;
     }
     void increaseQuality(){
